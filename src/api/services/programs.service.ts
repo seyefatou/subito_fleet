@@ -4,28 +4,26 @@ export interface Program {
   id: string;
   name: string;
   description?: string;
-  bankId: string;
-  vehicleCount: number;
-  totalFinancing: number;
-  interestRate: number;
-  durationMonths: number;
+  bank_id?: string;
+  guarantee_fund_id?: string;
+  vehicle_count?: number;
+  total_financed?: number;
   status: 'ACTIVE' | 'COMPLETED' | 'SUSPENDED';
-  startDate?: string;
-  endDate?: string;
-  bank?: any;
-  vehicles?: any[];
-  createdAt: string;
-  updatedAt: string;
+  start_date?: string;
+  end_date?: string;
+  banks?: any;
+  guarantee_funds?: any;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CreateProgramDto {
   name: string;
   description?: string;
-  bankId: string;
+  bankId?: string;
+  guaranteeFundId?: string;
   vehicleCount?: number;
-  totalFinancing?: number;
-  interestRate: number;
-  durationMonths: number;
+  totalFinanced?: number;
   status?: string;
   startDate?: string;
   endDate?: string;

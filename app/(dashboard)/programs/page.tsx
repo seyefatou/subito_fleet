@@ -3,8 +3,9 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { FileText, Calendar, Landmark, Edit2, MoreVertical, Eye } from 'lucide-react';
+import { FileText, Calendar, Landmark, Edit2, MoreVertical, Eye, Loader2, Filter, X } from 'lucide-react';
 import { format } from 'date-fns';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/common/PageHeader';
 import DataTable from '@/components/common/DataTable';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -17,26 +18,81 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
+import programsService from '@/api/services/programs.service';
+import banksService from '@/api/services/banks.service';
 
-// Données mock
-const mockPrograms: any[] = [];
-const mockBanks: any[] = [];
+const statusOptions = [
+  { value: 'ACTIVE', label: 'Actif' },
+  { value: 'COMPLETED', label: 'Terminé' },
+  { value: 'SUSPENDED', label: 'Suspendu' },
+];
 
 export default function Programs() {
+  const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProgram, setEditingProgram] = useState(null);
   const [formData, setFormData] = useState({});
-  const [isLoading, setIsLoading] = useState(false);
 
-  const programs = mockPrograms;
-  const banks = mockBanks;
+  // Filtres
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterBankId, setFilterBankId] = useState<string>('');
+
+  // Récupérer les programmes avec filtres
+  const { data: programsData, isLoading } = useQuery({
+    queryKey: ['programs', filterStatus, filterBankId],
+    queryFn: () => programsService.list({
+      status: filterStatus || undefined,
+      bankId: filterBankId || undefined
+    }),
+  });
+
+  // Récupérer les banques pour le select
+  const { data: banksData } = useQuery({
+    queryKey: ['banks'],
+    queryFn: () => banksService.list(),
+  });
+
+  const programs = programsData?.data || [];
+  const banks = banksData?.data || [];
+
+  const hasFilters = filterStatus || filterBankId;
+
+  const clearFilters = () => {
+    setFilterStatus('');
+    setFilterBankId('');
+  };
+
+  // Mutation pour créer/modifier un programme
+  const mutation = useMutation({
+    mutationFn: (data: any) => {
+      if (editingProgram) {
+        return programsService.update(editingProgram.id, data);
+      }
+      return programsService.create(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['programs'] });
+      toast.success(editingProgram ? 'Programme mis à jour' : 'Programme créé');
+      closeModal();
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'Une erreur est survenue');
+    },
+  });
 
   const getBank = (id) => banks.find(b => b.id === id);
 
   const openModal = (program = null) => {
     setEditingProgram(program);
-    setFormData(program || { status: 'active' });
+    setFormData(program || { status: 'ACTIVE' });
     setModalOpen(true);
   };
 
@@ -47,9 +103,7 @@ export default function Programs() {
   };
 
   const handleSubmit = async () => {
-    console.log('Submit:', formData);
-    toast.success(editingProgram ? 'Programme mis à jour' : 'Programme créé');
-    closeModal();
+    mutation.mutate(formData);
   };
 
   const handleChange = (e) => {
@@ -66,7 +120,7 @@ export default function Programs() {
           </div>
           <div>
             <Link href={`/programs/${program.id}`} className="text-blue-600 hover:underline font-semibold">{program.name}</Link>
-            <p className="text-xs text-slate-500">{program.code}</p>
+            <p className="text-xs text-slate-500">{program.description || '-'}</p>
           </div>
         </div>
       )
@@ -74,7 +128,7 @@ export default function Programs() {
     {
       header: 'Banque',
       render: (program) => {
-        const bank = getBank(program.bank_id);
+        const bank = program.banks || getBank(program.bank_id);
         return bank ? (
           <div className="flex items-center gap-2">
             <Landmark className="w-4 h-4 text-blue-500" />
@@ -84,22 +138,16 @@ export default function Programs() {
       }
     },
     {
-      header: 'Durée',
+      header: 'Véhicules',
       render: (program) => (
-        <span>{program.duration_months} mois</span>
+        <span>{program.vehicle_count || 0}</span>
       )
     },
     {
-      header: 'Taux',
-      render: (program) => (
-        <span>{program.interest_rate}%</span>
-      )
-    },
-    {
-      header: 'Montant max',
+      header: 'Financement',
       render: (program) => (
         <span className="font-semibold">
-          {program.max_amount?.toLocaleString('fr-FR')} F
+          {program.total_financed?.toLocaleString('fr-FR') || 0} F
         </span>
       )
     },
@@ -143,6 +191,49 @@ export default function Programs() {
         actionLabel="Ajouter un programme"
       />
 
+      {/* Filtres */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2 text-slate-600">
+            <Filter className="w-4 h-4" />
+            <span className="text-sm font-medium">Filtres</span>
+          </div>
+
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Tous les statuts" />
+            </SelectTrigger>
+            <SelectContent>
+              {statusOptions.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterBankId} onValueChange={setFilterBankId}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Toutes les banques" />
+            </SelectTrigger>
+            <SelectContent>
+              {banks.map(bank => (
+                <SelectItem key={bank.id} value={bank.id}>
+                  {bank.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-slate-500">
+              <X className="w-4 h-4 mr-1" />
+              Effacer
+            </Button>
+          )}
+        </div>
+      </div>
+
       <DataTable
         columns={columns}
         data={programs}
@@ -156,6 +247,7 @@ export default function Programs() {
         onClose={closeModal}
         title={editingProgram ? 'Modifier le programme' : 'Nouveau programme'}
         onSubmit={handleSubmit}
+        isLoading={mutation.isPending}
       >
         <div className="grid grid-cols-2 gap-4">
           <FormField
@@ -166,38 +258,39 @@ export default function Programs() {
             required
           />
           <FormField
-            label="Code"
-            name="code"
-            value={formData.code}
-            onChange={handleChange}
-          />
-          <FormField
             label="Banque"
-            name="bank_id"
+            name="bankId"
             type="select"
-            value={formData.bank_id}
+            value={formData.bankId}
             onChange={handleChange}
             options={banks.map(b => ({ value: b.id, label: b.name }))}
           />
           <FormField
-            label="Durée (mois)"
-            name="duration_months"
-            type="number"
-            value={formData.duration_months}
+            label="Date de début"
+            name="startDate"
+            type="date"
+            value={formData.startDate}
             onChange={handleChange}
           />
           <FormField
-            label="Taux d'intérêt (%)"
-            name="interest_rate"
-            type="number"
-            value={formData.interest_rate}
+            label="Date de fin"
+            name="endDate"
+            type="date"
+            value={formData.endDate}
             onChange={handleChange}
           />
           <FormField
-            label="Montant maximum"
-            name="max_amount"
+            label="Financement total (F)"
+            name="totalFinanced"
             type="number"
-            value={formData.max_amount}
+            value={formData.totalFinanced}
+            onChange={handleChange}
+          />
+          <FormField
+            label="Nombre de véhicules"
+            name="vehicleCount"
+            type="number"
+            value={formData.vehicleCount}
             onChange={handleChange}
           />
         </div>
