@@ -2,31 +2,31 @@ import apiClient, { ApiResponse } from '../client';
 
 export interface Insurance {
   id: string;
-  vehicleId: string;
-  insurerId: string;
-  policyNumber: string;
-  type: 'BASIC' | 'COMPREHENSIVE' | 'THIRD_PARTY';
-  premiumAmount: number;
-  startDate: string;
-  endDate: string;
+  vehicle_id: string;
+  insurer_id: string;
+  policy_number: string;
+  insurance_type: 'COMPREHENSIVE' | 'THIRD_PARTY' | 'ALL_RISK' | 'DRIVER_INCAPACITY';
+  premium_amount: number;
+  coverage_amount?: number;
+  start_date: string;
+  expiry_date: string;
   status: 'ACTIVE' | 'EXPIRED' | 'CANCELLED';
-  coverageDetails?: string;
   vehicle?: any;
   insurer?: any;
-  createdAt: string;
-  updatedAt: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CreateInsuranceDto {
   vehicleId: string;
   insurerId: string;
-  policyNumber: string;
-  type: string;
-  premiumAmount: number;
+  insuranceType: string;
+  policyNumber?: string;
+  premiumAmount?: number;
+  coverageAmount?: number;
   startDate: string;
-  endDate: string;
+  expiryDate: string;
   status?: string;
-  coverageDetails?: string;
 }
 
 export interface InsuranceFilters {
@@ -34,7 +34,6 @@ export interface InsuranceFilters {
   take?: number;
   vehicleId?: string;
   insurerId?: string;
-  type?: string;
   status?: string;
 }
 

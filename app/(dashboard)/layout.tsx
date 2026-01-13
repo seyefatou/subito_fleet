@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/providers/AuthProvider";
 
 const menuItems = [
   { name: 'Tableau de bord', icon: LayoutDashboard, href: '/' },
@@ -63,17 +64,24 @@ const menuItems = [
 export default function DashboardLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
-  // Mock user data - tu pourras le remplacer par ton système d'auth
-  const user = {
-    full_name: 'Utilisateur',
-    role: 'admin',
-    avatar: null
+  // Formater le nom complet de l'utilisateur
+  const fullName = user ? `${user.firstName} ${user.lastName}` : 'Utilisateur';
+
+  // Mapper les rôles pour l'affichage
+  const roleLabels: Record<string, string> = {
+    ADMIN: 'Administrateur',
+    OPERATOR: 'Opérateur',
+    BANK: 'Banque',
+    GIE: 'GIE',
+    DRIVER: 'Chauffeur',
+    FUND: 'Fonds de garantie',
+    INSURER: 'Assureur',
   };
 
   const handleLogout = () => {
-    // TODO: Implémenter la déconnexion
-    console.log('Logout');
+    logout();
   };
 
   const getCurrentPageName = () => {
@@ -157,26 +165,28 @@ export default function DashboardLayout({ children }) {
 
           <div className="flex items-center gap-4">
             {/* Notifications */}
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="w-5 h-5 text-slate-500" />
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                3
-              </span>
-            </Button>
+            <Link href="/notifications">
+              <Button variant="ghost" size="icon" className="relative">
+                <Bell className="w-5 h-5 text-slate-500" />
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                  3
+                </span>
+              </Button>
+            </Link>
 
             {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-3 px-3">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.avatar} />
+                    <AvatarImage src={user?.avatar || undefined} />
                     <AvatarFallback className="bg-amber-100 text-amber-700 font-medium">
-                      {user?.full_name?.charAt(0) || 'U'}
+                      {user?.firstName?.charAt(0) || 'U'}
                     </AvatarFallback>
                   </Avatar>
                   <div className="hidden md:block text-left">
-                    <p className="text-sm font-medium text-slate-700">{user?.full_name || 'Utilisateur'}</p>
-                    <p className="text-xs text-slate-500">{user?.role === 'admin' ? 'Opérateur' : 'Partenaire'}</p>
+                    <p className="text-sm font-medium text-slate-700">{fullName}</p>
+                    <p className="text-xs text-slate-500">{user?.role ? roleLabels[user.role] || user.role : 'Utilisateur'}</p>
                   </div>
                   <ChevronDown className="w-4 h-4 text-slate-400 hidden md:block" />
                 </Button>

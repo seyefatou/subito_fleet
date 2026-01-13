@@ -2,7 +2,8 @@
 "use client";
 
 import React, { useState } from 'react';
-import { FileText, Calendar, Landmark, Edit2, MoreVertical } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, Calendar, Landmark, Edit2, MoreVertical, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import PageHeader from '@/components/common/PageHeader';
 import DataTable from '@/components/common/DataTable';
@@ -64,7 +65,7 @@ export default function Programs() {
             <FileText className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="font-semibold text-slate-900">{program.name}</p>
+            <Link href={`/programs/${program.id}`} className="text-blue-600 hover:underline font-semibold">{program.name}</Link>
             <p className="text-xs text-slate-500">{program.code}</p>
           </div>
         </div>
@@ -117,6 +118,12 @@ export default function Programs() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`/programs/${program.id}`}>
+                <Eye className="w-4 h-4 mr-2" />
+                Voir détails
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openModal(program)}>
               <Edit2 className="w-4 h-4 mr-2" />
               Modifier

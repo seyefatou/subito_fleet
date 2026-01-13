@@ -2,7 +2,9 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Shield, Edit2, Trash2, MoreVertical } from 'lucide-react';
+import Link from 'next/link';
+import { Shield, Edit2, Trash2, MoreVertical, Loader2, Phone, Mail, User, Eye } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/common/PageHeader';
 import DataTable from '@/components/common/DataTable';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -15,27 +17,95 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import guaranteeFundsService from '@/api/services/guarantee-funds.service';
+import { useAlert } from '@/providers/AlertProvider';
 
 const statusOptions = [
-  { value: 'active', label: 'Actif' },
-  { value: 'inactive', label: 'Inactif' }
+  { value: 'ACTIVE', label: 'Actif' },
+  { value: 'INACTIVE', label: 'Inactif' }
 ];
 
-// Données mock
-const mockFunds: any[] = [];
-
 export default function GuaranteeFunds() {
+  const queryClient = useQueryClient();
+  const alert = useAlert();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingFund, setEditingFund] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [formData, setFormData] = useState({});
-  const [isLoading, setIsLoading] = useState(false);
 
-  const funds = mockFunds;
+  // Récupérer les fonds de garantie
+  const { data: fundsData, isLoading } = useQuery({
+    queryKey: ['guarantee-funds'],
+    queryFn: () => guaranteeFundsService.list(),
+  });
+
+  // Mutation pour créer un fonds
+  const createMutation = useMutation({
+    mutationFn: (data) => guaranteeFundsService.create(data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['guarantee-funds'] });
+      alert.showSuccess(response.message || 'Fonds créé avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de création');
+    },
+  });
+
+  // Mutation pour modifier un fonds
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => guaranteeFundsService.update(id, data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['guarantee-funds'] });
+      alert.showSuccess(response.message || 'Fonds mis à jour avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de mise à jour');
+    },
+  });
+
+  // Mutation pour supprimer un fonds
+  const deleteMutation = useMutation({
+    mutationFn: (id) => guaranteeFundsService.delete(id),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['guarantee-funds'] });
+      alert.showSuccess(response.message || 'Fonds supprimé avec succès');
+      setDeleteConfirm(null);
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de suppression');
+    },
+  });
+
+  const funds = fundsData?.data || [];
 
   const openModal = (fund = null) => {
     setEditingFund(fund);
-    setFormData(fund || { status: 'active' });
+    if (fund) {
+      setFormData({
+        name: fund.name,
+        totalAmount: fund.totalAmount,
+        availableAmount: fund.availableAmount,
+        managerName: fund.managerName,
+        contactPhone: fund.contactPhone,
+        contactEmail: fund.contactEmail,
+        address: fund.address,
+        status: fund.status,
+      });
+    } else {
+      setFormData({ status: 'ACTIVE' });
+    }
     setModalOpen(true);
   };
 
@@ -46,14 +116,33 @@ export default function GuaranteeFunds() {
   };
 
   const handleSubmit = async () => {
-    console.log('Submit:', formData);
-    toast.success(editingFund ? 'Fonds mis à jour' : 'Fonds créé');
-    closeModal();
+    const data = {
+      name: formData.name,
+      totalAmount: Number(formData.totalAmount) || 0,
+      availableAmount: Number(formData.availableAmount) || Number(formData.totalAmount) || 0,
+      managerName: formData.managerName || undefined,
+      contactPhone: formData.contactPhone || undefined,
+      contactEmail: formData.contactEmail || undefined,
+      address: formData.address || undefined,
+      status: formData.status,
+    };
+
+    if (editingFund) {
+      updateMutation.mutate({ id: editingFund.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    deleteMutation.mutate(id);
   };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   const columns = [
     {
@@ -64,17 +153,41 @@ export default function GuaranteeFunds() {
             <Shield className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="font-semibold text-slate-900">{fund.name}</p>
-            <p className="text-xs text-slate-500">{fund.code}</p>
+            <Link href={`/guarantee-funds/${fund.id}`} className="text-blue-600 hover:underline font-semibold">{fund.name}</Link>
+            {fund.managerName && (
+              <p className="text-xs text-slate-500 flex items-center gap-1">
+                <User className="w-3 h-3" />
+                {fund.managerName}
+              </p>
+            )}
           </div>
         </div>
       )
     },
     {
-      header: 'Dotation',
+      header: 'Contact',
       render: (fund) => (
-        <span className="font-semibold">
-          {fund.total_amount?.toLocaleString('fr-FR')} F
+        <div className="space-y-1">
+          {fund.contactPhone && (
+            <p className="text-xs text-slate-500 flex items-center gap-1">
+              <Phone className="w-3 h-3" />
+              {fund.contactPhone}
+            </p>
+          )}
+          {fund.contactEmail && (
+            <p className="text-xs text-slate-500 flex items-center gap-1">
+              <Mail className="w-3 h-3" />
+              {fund.contactEmail}
+            </p>
+          )}
+        </div>
+      )
+    },
+    {
+      header: 'Dotation totale',
+      render: (fund) => (
+        <span className="font-semibold text-slate-900">
+          {fund.totalAmount?.toLocaleString('fr-FR')} F
         </span>
       )
     },
@@ -82,17 +195,20 @@ export default function GuaranteeFunds() {
       header: 'Disponible',
       render: (fund) => (
         <span className="text-emerald-600 font-medium">
-          {fund.available_amount?.toLocaleString('fr-FR')} F
+          {fund.availableAmount?.toLocaleString('fr-FR')} F
         </span>
       )
     },
     {
       header: 'Engagé',
-      render: (fund) => (
-        <span className="text-amber-600">
-          {fund.committed_amount?.toLocaleString('fr-FR')} F
-        </span>
-      )
+      render: (fund) => {
+        const committed = (fund.totalAmount || 0) - (fund.availableAmount || 0);
+        return (
+          <span className="text-amber-600">
+            {committed.toLocaleString('fr-FR')} F
+          </span>
+        );
+      }
     },
     {
       header: 'Statut',
@@ -109,9 +225,22 @@ export default function GuaranteeFunds() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`/guarantee-funds/${fund.id}`}>
+                <Eye className="w-4 h-4 mr-2" />
+                Voir détails
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openModal(fund)}>
               <Edit2 className="w-4 h-4 mr-2" />
               Modifier
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setDeleteConfirm(fund)}
+              className="text-red-600"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Supprimer
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -141,6 +270,7 @@ export default function GuaranteeFunds() {
         onClose={closeModal}
         title={editingFund ? 'Modifier le fonds' : 'Nouveau fonds'}
         onSubmit={handleSubmit}
+        isSubmitting={isSubmitting}
       >
         <div className="grid grid-cols-2 gap-4">
           <FormField
@@ -151,16 +281,37 @@ export default function GuaranteeFunds() {
             required
           />
           <FormField
-            label="Code"
-            name="code"
-            value={formData.code}
+            label="Gestionnaire"
+            name="managerName"
+            value={formData.managerName}
             onChange={handleChange}
           />
           <FormField
-            label="Dotation totale"
-            name="total_amount"
+            label="Dotation totale (FCFA)"
+            name="totalAmount"
             type="number"
-            value={formData.total_amount}
+            value={formData.totalAmount}
+            onChange={handleChange}
+            required
+          />
+          <FormField
+            label="Montant disponible (FCFA)"
+            name="availableAmount"
+            type="number"
+            value={formData.availableAmount}
+            onChange={handleChange}
+          />
+          <FormField
+            label="Téléphone"
+            name="contactPhone"
+            value={formData.contactPhone}
+            onChange={handleChange}
+          />
+          <FormField
+            label="Email"
+            name="contactEmail"
+            type="email"
+            value={formData.contactEmail}
             onChange={handleChange}
           />
           <FormField
@@ -173,14 +324,38 @@ export default function GuaranteeFunds() {
           />
         </div>
         <FormField
-          label="Description"
-          name="description"
+          label="Adresse"
+          name="address"
           type="textarea"
-          value={formData.description}
+          value={formData.address}
           onChange={handleChange}
           rows={2}
         />
       </FormModal>
+
+      <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce fonds ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Les garanties associées devront être réaffectées.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => handleDelete(deleteConfirm?.id)}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

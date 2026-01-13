@@ -2,6 +2,7 @@
 "use client";
 
 import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Car,
   Users,
@@ -10,7 +11,8 @@ import {
   Landmark,
   Shield,
   TrendingUp,
-  Wallet
+  Wallet,
+  Loader2
 } from 'lucide-react';
 import StatCard from '@/components/dashboard/StatCard';
 import PaymentChart from '@/components/dashboard/PaymentChart';
@@ -21,49 +23,97 @@ import MaintenanceAlertsWidget from '@/components/dashboard/MaintenanceAlertsWid
 import FinancialSummary from '@/components/dashboard/FinancialSummary';
 import DriverPerformanceWidget from '@/components/dashboard/DriverPerformanceWidget';
 import VehicleStatsWidget from '@/components/dashboard/VehicleStatsWidget';
-
-// Données mock - à remplacer par tes appels API
-const mockVehicles: any[] = [];
-const mockDrivers: any[] = [];
-const mockBanks: any[] = [];
-const mockPayments: any[] = [];
-const mockIncidents: any[] = [];
-const mockGuarantees: any[] = [];
+import { useAuth } from '@/providers/AuthProvider';
+import vehiclesService from '@/api/services/vehicles.service';
+import driversService from '@/api/services/drivers.service';
+import banksService from '@/api/services/banks.service';
+import paymentsService from '@/api/services/payments.service';
+import incidentsService from '@/api/services/incidents.service';
+import guaranteesService from '@/api/services/guarantees.service';
 
 export default function Dashboard() {
-  // Utilise des données mock pour l'instant
-  const vehicles = mockVehicles;
-  const drivers = mockDrivers;
-  const banks = mockBanks;
-  const payments = mockPayments;
-  const incidents = mockIncidents;
-  const guarantees = mockGuarantees;
+  const { user } = useAuth();
 
-  // Calculate stats
-  const activeVehicles = vehicles.filter(v => v.status === 'active').length;
-  const activeDrivers = drivers.filter(d => d.status === 'active').length;
-  const totalCredit = vehicles.reduce((sum, v) => sum + (v.credit_amount || 0), 0);
-  const totalRemaining = vehicles.reduce((sum, v) => sum + (v.credit_remaining || 0), 0);
-  const openIncidents = incidents.filter(i => i.status === 'open').length;
+  // Récupérer les données avec React Query
+  const { data: vehiclesData, isLoading: loadingVehicles } = useQuery({
+    queryKey: ['vehicles'],
+    queryFn: () => vehiclesService.list(),
+  });
+
+  const { data: driversData, isLoading: loadingDrivers } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => driversService.list(),
+  });
+
+  const { data: banksData, isLoading: loadingBanks } = useQuery({
+    queryKey: ['banks'],
+    queryFn: () => banksService.list(),
+  });
+
+  const { data: paymentsData, isLoading: loadingPayments } = useQuery({
+    queryKey: ['payments'],
+    queryFn: () => paymentsService.list({ take: 100 }),
+  });
+
+  const { data: incidentsData, isLoading: loadingIncidents } = useQuery({
+    queryKey: ['incidents'],
+    queryFn: () => incidentsService.list(),
+  });
+
+  const { data: guaranteesData, isLoading: loadingGuarantees } = useQuery({
+    queryKey: ['guarantees'],
+    queryFn: () => guaranteesService.list(),
+  });
+
+  // Extraire les données des réponses API
+  const vehicles = vehiclesData?.data || [];
+  const drivers = driversData?.data || [];
+  const banks = banksData?.data || [];
+  const payments = paymentsData?.data || [];
+  const incidents = incidentsData?.data || [];
+  const guarantees = guaranteesData?.data || [];
+
+  const isLoading = loadingVehicles || loadingDrivers || loadingBanks || loadingPayments || loadingIncidents || loadingGuarantees;
+
+  // Calculate stats - utilise les noms de champs du backend (camelCase)
+  const activeVehicles = vehicles.filter(v => v.status === 'ACTIVE').length;
+  const activeDrivers = drivers.filter(d => d.status === 'ACTIVE').length;
+  const totalCredit = vehicles.reduce((sum, v) => sum + (v.creditAmount || 0), 0);
+  const totalRemaining = vehicles.reduce((sum, v) => sum + (v.creditRemaining || 0), 0);
+  const openIncidents = incidents.filter(i => i.status === 'REPORTED' || i.status === 'INVESTIGATING').length;
 
   const todayPayments = payments.filter(p => {
     const today = new Date().toISOString().split('T')[0];
-    return p.payment_date === today;
+    return p.paymentDate?.split('T')[0] === today;
   });
   const todayCollected = todayPayments
-    .filter(p => p.status === 'paid')
-    .reduce((sum, p) => sum + (p.paid_amount || 0), 0);
+    .filter(p => p.status === 'PAID')
+    .reduce((sum, p) => sum + (p.paidAmount || 0), 0);
 
   const repaymentRate = payments.length > 0
-    ? Math.round((payments.filter(p => p.status === 'paid').length / payments.length) * 100)
+    ? Math.round((payments.filter(p => p.status === 'PAID').length / payments.length) * 100)
     : 0;
+
+  // Afficher un loader pendant le chargement
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-10 h-10 text-amber-500 animate-spin" />
+          <p className="text-slate-600">Chargement des données...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Tableau de bord</h1>
-        <p className="text-slate-500 mt-1">Vue d'ensemble du programme de financement</p>
+        <p className="text-slate-500 mt-1">
+          Bienvenue {user?.firstName} ! Vue d'ensemble du programme de financement
+        </p>
       </div>
 
       {/* Stats Grid */}
@@ -120,7 +170,7 @@ export default function Dashboard() {
         />
         <StatCard
           title="Garanties actives"
-          value={guarantees.filter(g => g.status === 'active').length}
+          value={guarantees.filter(g => g.status === 'ACTIVE').length}
           icon={Shield}
           color="purple"
         />

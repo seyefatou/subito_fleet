@@ -2,7 +2,9 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Landmark, Phone, Mail, MapPin, Edit2, Trash2, MoreVertical } from 'lucide-react';
+import Link from 'next/link';
+import { Landmark, Phone, Mail, MapPin, Edit2, Trash2, MoreVertical, Loader2, Eye } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/common/PageHeader';
 import DataTable from '@/components/common/DataTable';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -25,40 +27,92 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
-
-const mobileMoneyProviders = [
-  { value: 'orange_money', label: 'Orange Money' },
-  { value: 'wave', label: 'Wave' },
-  { value: 'free_money', label: 'Free Money' },
-  { value: 'other', label: 'Autre' }
-];
+import banksService from '@/api/services/banks.service';
+import vehiclesService from '@/api/services/vehicles.service';
+import { useAlert } from '@/providers/AlertProvider';
 
 const statusOptions = [
-  { value: 'active', label: 'Actif' },
-  { value: 'inactive', label: 'Inactif' },
-  { value: 'suspended', label: 'Suspendu' }
+  { value: 'ACTIVE', label: 'Actif' },
+  { value: 'INACTIVE', label: 'Inactif' }
 ];
 
-// Données mock - à remplacer par tes appels API
-const mockBanks: any[] = [];
-const mockVehicles: any[] = [];
-
 export default function Banks() {
+  const queryClient = useQueryClient();
+  const alert = useAlert();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingBank, setEditingBank] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [formData, setFormData] = useState({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Données mock
-  const banks = mockBanks;
-  const vehicles = mockVehicles;
+  // Récupérer les banques
+  const { data: banksData, isLoading } = useQuery({
+    queryKey: ['banks'],
+    queryFn: () => banksService.list(),
+  });
+
+  // Récupérer les véhicules pour les stats
+  const { data: vehiclesData } = useQuery({
+    queryKey: ['vehicles'],
+    queryFn: () => vehiclesService.list(),
+  });
+
+  // Mutation pour créer une banque
+  const createMutation = useMutation({
+    mutationFn: (data) => banksService.create(data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['banks'] });
+      alert.showSuccess(response.message || 'Banque créée avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de création');
+    },
+  });
+
+  // Mutation pour modifier une banque
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => banksService.update(id, data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['banks'] });
+      alert.showSuccess(response.message || 'Banque mise à jour avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de mise à jour');
+    },
+  });
+
+  // Mutation pour supprimer une banque
+  const deleteMutation = useMutation({
+    mutationFn: (id) => banksService.delete(id),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['banks'] });
+      alert.showSuccess(response.message || 'Banque supprimée avec succès');
+      setDeleteConfirm(null);
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de suppression');
+    },
+  });
+
+  const banks = banksData?.data || [];
+  const vehicles = vehiclesData?.data || [];
 
   const openModal = (bank = null) => {
     setEditingBank(bank);
-    setFormData(bank || { status: 'active' });
+    if (bank) {
+      setFormData({
+        name: bank.name,
+        code: bank.code,
+        address: bank.address,
+        contactPhone: bank.contact_phone,
+        contactEmail: bank.contact_email,
+        mobileMoneyProvider: bank.mobile_money_provider,
+        status: bank.status,
+      });
+    } else {
+      setFormData({ status: 'ACTIVE' });
+    }
     setModalOpen(true);
   };
 
@@ -69,47 +123,46 @@ export default function Banks() {
   };
 
   const handleSubmit = async () => {
-    // TODO: Implémenter l'appel API
-    console.log('Submit:', formData);
-    toast.success(editingBank ? 'Banque mise à jour' : 'Banque créée avec succès');
-    closeModal();
+    const data = {
+      name: formData.name,
+      code: formData.code || undefined,
+      address: formData.address || undefined,
+      contactPhone: formData.contactPhone || undefined,
+      contactEmail: formData.contactEmail || undefined,
+      mobileMoneyProvider: formData.mobileMoneyProvider && formData.mobileMoneyProvider !== 'NONE' ? formData.mobileMoneyProvider : undefined,
+      status: formData.status,
+    };
+
+    if (editingBank) {
+      updateMutation.mutate({ id: editingBank.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
   };
 
   const handleDelete = async (id) => {
-    // TODO: Implémenter l'appel API
-    console.log('Delete:', id);
-    toast.success('Banque supprimée');
-    setDeleteConfirm(null);
+    deleteMutation.mutate(id);
   };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+
   const columns = [
     {
       header: 'Banque',
       render: (bank) => (
-        <div className="flex items-center gap-3">
+        <Link href={`/banks/${bank.id}`} className="flex items-center gap-3 hover:opacity-80">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
             <Landmark className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="font-semibold text-slate-900">{bank.name}</p>
-            <p className="text-xs text-slate-500">{bank.code}</p>
+            <p className="font-semibold text-blue-600 hover:underline">{bank.name}</p>
+            <p className="text-xs text-slate-500">{bank.code || '-'}</p>
           </div>
-        </div>
-      )
-    },
-    {
-      header: 'Mobile Money',
-      render: (bank) => (
-        <div>
-          <p className="text-sm text-slate-900">{bank.mobile_money_account}</p>
-          <p className="text-xs text-slate-500">
-            {mobileMoneyProviders.find(p => p.value === bank.mobile_money_provider)?.label || '-'}
-          </p>
-        </div>
+        </Link>
       )
     },
     {
@@ -128,16 +181,30 @@ export default function Banks() {
               {bank.contact_phone}
             </p>
           )}
+          {bank.mobile_money_provider && (
+            <p className="text-xs text-emerald-600 font-medium">
+              {bank.mobile_money_provider.replace('_', ' ')}
+            </p>
+          )}
         </div>
       )
     },
     {
+      header: 'Adresse',
+      render: (bank) => bank.address ? (
+        <div className="flex items-center gap-2">
+          <MapPin className="w-4 h-4 text-slate-400" />
+          <span className="text-sm text-slate-600">{bank.address}</span>
+        </div>
+      ) : <span className="text-slate-400">-</span>
+    },
+    {
       header: 'Véhicules',
       render: (bank) => {
-        const count = vehicles.filter(v => v.bank_id === bank.id).length;
+        const count = vehicles.filter(v => v.bankId === bank.id).length;
         const credit = vehicles
-          .filter(v => v.bank_id === bank.id)
-          .reduce((sum, v) => sum + (v.credit_amount || 0), 0);
+          .filter(v => v.bankId === bank.id)
+          .reduce((sum, v) => sum + (v.creditAmount || 0), 0);
         return (
           <div>
             <p className="font-semibold text-slate-900">{count}</p>
@@ -161,6 +228,12 @@ export default function Banks() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`/banks/${bank.id}`}>
+                <Eye className="w-4 h-4 mr-2" />
+                Voir détails
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openModal(bank)}>
               <Edit2 className="w-4 h-4 mr-2" />
               Modifier
@@ -215,52 +288,40 @@ export default function Banks() {
             name="code"
             value={formData.code}
             onChange={handleChange}
-            required
             placeholder="BNK001"
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <FormField
-            label="Compte Mobile Money"
-            name="mobile_money_account"
-            value={formData.mobile_money_account}
-            onChange={handleChange}
-            required
-            placeholder="77 123 45 67"
-          />
-          <FormField
-            label="Fournisseur"
-            name="mobile_money_provider"
-            type="select"
-            value={formData.mobile_money_provider}
-            onChange={handleChange}
-            options={mobileMoneyProviders}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <FormField
-            label="Nom du contact"
-            name="contact_name"
-            value={formData.contact_name}
-            onChange={handleChange}
-          />
-          <FormField
-            label="Email"
-            name="contact_email"
+            label="Email de contact"
+            name="contactEmail"
             type="email"
-            value={formData.contact_email}
+            value={formData.contactEmail}
+            onChange={handleChange}
+          />
+          <FormField
+            label="Téléphone de contact"
+            name="contactPhone"
+            value={formData.contactPhone}
             onChange={handleChange}
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <FormField
-            label="Téléphone"
-            name="contact_phone"
-            value={formData.contact_phone}
+            label="Mobile Money"
+            name="mobileMoneyProvider"
+            type="select"
+            value={formData.mobileMoneyProvider}
             onChange={handleChange}
+            options={[
+              { value: 'NONE', label: 'Aucun' },
+              { value: 'ORANGE_MONEY', label: 'Orange Money' },
+              { value: 'WAVE', label: 'Wave' },
+              { value: 'FREE_MONEY', label: 'Free Money' },
+              { value: 'OTHER', label: 'Autre' },
+            ]}
           />
           <FormField
             label="Statut"
@@ -295,7 +356,11 @@ export default function Banks() {
             <AlertDialogAction
               onClick={() => handleDelete(deleteConfirm?.id)}
               className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
             >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>

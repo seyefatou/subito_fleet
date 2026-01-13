@@ -3,19 +3,25 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  User, Phone, Mail, Car, Building2, Edit2, Trash2, MoreVertical,
-  CreditCard, AlertTriangle, Calendar, Receipt, Star, FileText, Send, Eye
+  Phone, Mail, Car, Building2, Edit2, Trash2, MoreVertical,
+  Receipt, Eye, Loader2, Filter, X, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { fr } from 'date-fns/locale';
 import PageHeader from '@/components/common/PageHeader';
 import DataTable from '@/components/common/DataTable';
-import StatusBadge from '@/components/common/StatusBadge';
 import FormModal from '@/components/common/FormModal';
 import FormField from '@/components/common/FormField';
+import FileUpload from '@/components/common/FileUpload';
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,41 +38,180 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
+import { driversService } from '@/api/services/drivers.service';
+import { vehiclesService } from '@/api/services/vehicles.service';
+import { giesService } from '@/api/services/gies.service';
+import { useAlert } from '@/providers/AlertProvider';
 
 const statusOptions = [
-  { value: 'active', label: 'Actif' },
-  { value: 'inactive', label: 'Inactif' },
-  { value: 'suspended', label: 'Suspendu' }
+  { value: 'ACTIVE', label: 'Actif' },
+  { value: 'INACTIVE', label: 'Inactif' },
+  { value: 'SUSPENDED', label: 'Suspendu' }
 ];
 
-// Données mock - à remplacer par tes appels API
-const mockDrivers: any[] = [];
-const mockVehicles: any[] = [];
-const mockGies: any[] = [];
-const mockPayments: any[] = [];
-
 export default function Drivers() {
+  const queryClient = useQueryClient();
+  const alert = useAlert();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [formData, setFormData] = useState({});
-  const [selectedDriver, setSelectedDriver] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [filterGie, setFilterGie] = useState<string>('all');
+  const [filterVehicle, setFilterVehicle] = useState<string>('all');
 
-  // Données mock
-  const drivers = mockDrivers;
-  const vehicles = mockVehicles;
-  const gies = mockGies;
-  const payments = mockPayments;
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Récupérer les conducteurs
+  const { data: driversData, isLoading } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => driversService.list(),
+  });
+
+  // Récupérer les véhicules
+  const { data: vehiclesData } = useQuery({
+    queryKey: ['vehicles'],
+    queryFn: () => vehiclesService.list(),
+  });
+
+  // Récupérer les GIE
+  const { data: giesData } = useQuery({
+    queryKey: ['gies'],
+    queryFn: () => giesService.list(),
+  });
+
+  // Mutation pour créer un conducteur
+  const createMutation = useMutation({
+    mutationFn: (data) => driversService.create(data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      alert.showSuccess(response.message || 'Conducteur créé avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de création');
+    },
+  });
+
+  // Mutation pour modifier un conducteur
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => driversService.update(id, data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      alert.showSuccess(response.message || 'Conducteur mis à jour avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de mise à jour');
+    },
+  });
+
+  // Mutation pour supprimer un conducteur
+  const deleteMutation = useMutation({
+    mutationFn: (id) => driversService.delete(id),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      alert.showSuccess(response.message || 'Conducteur supprimé avec succès');
+      setDeleteConfirm(null);
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de suppression');
+    },
+  });
+
+  // Mutation pour uploader un document
+  const uploadMutation = useMutation({
+    mutationFn: ({ driverId, documentType, file }: { driverId: string; documentType: string; file: File }) =>
+      driversService.uploadDocument(driverId, documentType, file),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      alert.showSuccess(response.message || 'Document uploadé avec succès');
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur d\'upload');
+    },
+  });
+
+  // Mutation pour supprimer un document
+  const deleteDocMutation = useMutation({
+    mutationFn: ({ driverId, documentType }: { driverId: string; documentType: string }) =>
+      driversService.deleteDocument(driverId, documentType),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      alert.showSuccess(response.message || 'Document supprimé avec succès');
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de suppression');
+    },
+  });
+
+  const drivers = driversData?.data || [];
+  const vehicles = vehiclesData?.data || [];
+  const gies = giesData?.data || [];
 
   const getGIE = (id) => gies.find(g => g.id === id);
   const getVehicle = (id) => vehicles.find(v => v.id === id);
 
+  // Filtrage des chauffeurs
+  const filteredDrivers = drivers.filter((driver) => {
+    // Filtre par GIE
+    if (filterGie !== 'all') {
+      if (filterGie === 'none' && driver.gie_id) return false;
+      if (filterGie !== 'none' && driver.gie_id !== filterGie) return false;
+    }
+    // Filtre par véhicule
+    if (filterVehicle !== 'all') {
+      if (filterVehicle === 'none' && driver.current_vehicle_id) return false;
+      if (filterVehicle === 'assigned' && !driver.current_vehicle_id) return false;
+      if (filterVehicle !== 'none' && filterVehicle !== 'assigned' && driver.current_vehicle_id !== filterVehicle) return false;
+    }
+    return true;
+  });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredDrivers.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedDrivers = filteredDrivers.slice(startIndex, startIndex + itemsPerPage);
+
+  const hasActiveFilters = filterGie !== 'all' || filterVehicle !== 'all';
+
+  const clearFilters = () => {
+    setFilterGie('all');
+    setFilterVehicle('all');
+    setCurrentPage(1);
+  };
+
+  // Reset page when filters change
+  const handleFilterChange = (setter: (value: string) => void, value: string) => {
+    setter(value);
+    setCurrentPage(1);
+  };
+
   const openModal = (driver = null) => {
     setEditingDriver(driver);
-    setFormData(driver || { status: 'active', is_credit_holder: false });
+    if (driver) {
+      setFormData({
+        firstName: driver.first_name,
+        lastName: driver.last_name,
+        idNumber: driver.id_number,
+        phone: driver.phone,
+        email: driver.email,
+        address: driver.address,
+        dateOfBirth: driver.date_of_birth ? driver.date_of_birth.split('T')[0] : '',
+        licenseNumber: driver.license_number,
+        licenseExpiry: driver.license_expiry ? driver.license_expiry.split('T')[0] : '',
+        gieId: driver.gie_id,
+        status: driver.status,
+        photoUrl: driver.photo_url,
+        idCardFrontUrl: driver.id_card_front_url,
+        idCardBackUrl: driver.id_card_back_url,
+        licenseFrontUrl: driver.license_front_url,
+        licenseBackUrl: driver.license_back_url,
+      });
+    } else {
+      setFormData({ status: 'ACTIVE' });
+    }
     setModalOpen(true);
   };
 
@@ -76,40 +221,72 @@ export default function Drivers() {
     setFormData({});
   };
 
+  const handleDocumentUpload = async (documentType: string, file: File) => {
+    if (!editingDriver) {
+      alert.showWarning('Veuillez d\'abord créer le chauffeur avant d\'ajouter des documents');
+      return;
+    }
+    uploadMutation.mutate({ driverId: editingDriver.id, documentType, file });
+  };
+
+  const handleDocumentDelete = async (documentType: string) => {
+    if (!editingDriver) return;
+    deleteDocMutation.mutate({ driverId: editingDriver.id, documentType });
+  };
+
   const handleSubmit = async () => {
-    // TODO: Implémenter l'appel API
-    console.log('Submit:', formData);
-    toast.success(editingDriver ? 'Chauffeur mis à jour' : 'Chauffeur créé');
-    closeModal();
+    const gieId = formData.gieId && formData.gieId !== 'NONE' ? formData.gieId : undefined;
+
+    const data = {
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      idNumber: formData.idNumber,
+      phone: formData.phone,
+      email: formData.email || undefined,
+      address: formData.address || undefined,
+      dateOfBirth: formData.dateOfBirth || undefined,
+      licenseNumber: formData.licenseNumber || undefined,
+      licenseExpiry: formData.licenseExpiry || undefined,
+      gieId: gieId,
+      status: formData.status,
+    };
+
+    if (editingDriver) {
+      updateMutation.mutate({ id: editingDriver.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
   };
 
   const handleDelete = async (id) => {
-    // TODO: Implémenter l'appel API
-    console.log('Delete:', id);
-    toast.success('Chauffeur supprimé');
-    setDeleteConfirm(null);
+    deleteMutation.mutate(id);
   };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+
   const columns = [
     {
-      header: 'Chauffeur',
+      header: 'Prénom',
       render: (driver) => (
         <div className="flex items-center gap-3">
-          <Avatar className="h-10 w-10">
+          <Avatar className="h-8 w-8">
             <AvatarImage src={driver.photo_url} />
-            <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-medium">
+            <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-medium text-xs">
               {driver.first_name?.charAt(0)}{driver.last_name?.charAt(0)}
             </AvatarFallback>
           </Avatar>
-          <div>
-            <p className="font-semibold text-slate-900">{driver.first_name} {driver.last_name}</p>
-            <p className="text-xs text-slate-500">CNI: {driver.id_number}</p>
-          </div>
+          <span className="font-medium text-slate-900">{driver.first_name}</span>
         </div>
+      )
+    },
+    {
+      header: 'Nom',
+      render: (driver) => (
+        <span className="font-medium text-slate-900">{driver.last_name}</span>
       )
     },
     {
@@ -132,7 +309,7 @@ export default function Drivers() {
     {
       header: 'GIE',
       render: (driver) => {
-        const gie = getGIE(driver.gie_id);
+        const gie = driver.gies || getGIE(driver.gie_id);
         return gie ? (
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-purple-500" />
@@ -144,63 +321,18 @@ export default function Drivers() {
       }
     },
     {
-      header: 'Véhicule actuel',
+      header: 'Véhicule',
       render: (driver) => {
-        const vehicle = getVehicle(driver.current_vehicle_id);
+        const vehicle = driver.vehicles_drivers_current_vehicle_idTovehicles || getVehicle(driver.current_vehicle_id);
         return vehicle ? (
           <div className="flex items-center gap-2">
             <Car className="w-4 h-4 text-amber-500" />
-            <span className="text-sm font-medium text-slate-900">{vehicle.registration_number}</span>
+            <span className="text-sm font-medium text-slate-900">{vehicle.registrationNumber}</span>
           </div>
         ) : (
           <span className="text-xs text-slate-400">Non assigné</span>
         );
       }
-    },
-    {
-      header: 'Paiements',
-      render: (driver) => {
-        const driverPayments = payments.filter(p => p.driver_id === driver.id);
-        const totalPaid = driverPayments
-          .filter(p => p.status === 'paid')
-          .reduce((sum, p) => sum + (p.paid_amount || 0), 0);
-        const overdueCount = driverPayments.filter(p => p.status === 'overdue').length;
-
-        return (
-          <div>
-            <p className="text-sm font-medium text-slate-900">
-              {(totalPaid / 1000).toFixed(0)}K FCFA
-            </p>
-            {overdueCount > 0 && (
-              <p className="text-xs text-red-500 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                {overdueCount} retard(s)
-              </p>
-            )}
-          </div>
-        );
-      }
-    },
-    {
-      header: 'Permis',
-      render: (driver) => {
-        const isExpired = driver.license_expiry && new Date(driver.license_expiry) < new Date();
-        return (
-          <div>
-            <p className="text-xs text-slate-500">{driver.license_number || '-'}</p>
-            {driver.license_expiry && (
-              <p className={`text-xs flex items-center gap-1 ${isExpired ? 'text-red-500' : 'text-slate-400'}`}>
-                <Calendar className="w-3 h-3" />
-                {format(new Date(driver.license_expiry), 'dd/MM/yyyy')}
-              </p>
-            )}
-          </div>
-        );
-      }
-    },
-    {
-      header: 'Statut',
-      render: (driver) => <StatusBadge status={driver.status} />
     },
     {
       header: '',
@@ -213,9 +345,11 @@ export default function Drivers() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setSelectedDriver(driver)}>
-              <Eye className="w-4 h-4 mr-2" />
-              Voir détails
+            <DropdownMenuItem asChild>
+              <Link href={`/drivers/${driver.id}`}>
+                <Eye className="w-4 h-4 mr-2" />
+                Voir détails
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href={`/driver-payment-history?driver=${driver.id}`}>
@@ -240,8 +374,7 @@ export default function Drivers() {
     }
   ];
 
-  const gieOptions = gies.map(g => ({ value: g.id, label: g.name }));
-  const vehicleOptions = vehicles.map(v => ({ value: v.id, label: `${v.registration_number} - ${v.brand} ${v.model}` }));
+  const gieOptions = [{ value: 'NONE', label: 'Indépendant' }, ...gies.map(g => ({ value: g.id, label: g.name }))];
 
   return (
     <div>
@@ -252,13 +385,125 @@ export default function Drivers() {
         actionLabel="Ajouter un chauffeur"
       />
 
+      {/* Filtres */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <Filter className="w-4 h-4" />
+            <span className="font-medium">Filtres:</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-slate-600">GIE:</label>
+            <Select value={filterGie} onValueChange={(v) => handleFilterChange(setFilterGie, v)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Tous les GIE" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les GIE</SelectItem>
+                <SelectItem value="none">Indépendants</SelectItem>
+                {gies.map((gie) => (
+                  <SelectItem key={gie.id} value={gie.id}>{gie.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-slate-600">Véhicule:</label>
+            <Select value={filterVehicle} onValueChange={(v) => handleFilterChange(setFilterVehicle, v)}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Tous les véhicules" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                <SelectItem value="assigned">Avec véhicule</SelectItem>
+                <SelectItem value="none">Sans véhicule</SelectItem>
+                {vehicles.map((vehicle) => (
+                  <SelectItem key={vehicle.id} value={vehicle.id}>{vehicle.registrationNumber}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-slate-500 hover:text-slate-700">
+              <X className="w-4 h-4 mr-1" />
+              Réinitialiser
+            </Button>
+          )}
+
+          <div className="ml-auto text-sm text-slate-500">
+            {filteredDrivers.length} chauffeur{filteredDrivers.length > 1 ? 's' : ''} trouvé{filteredDrivers.length > 1 ? 's' : ''}
+          </div>
+        </div>
+      </div>
+
       <DataTable
         columns={columns}
-        data={drivers}
+        data={paginatedDrivers}
         isLoading={isLoading}
         searchPlaceholder="Rechercher un chauffeur..."
         emptyMessage="Aucun chauffeur enregistré"
       />
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mt-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-slate-600">
+              Page {currentPage} sur {totalPages} ({filteredDrivers.length} chauffeurs)
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="w-4 h-4 mr-1" />
+                Précédent
+              </Button>
+
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      className="w-8 h-8 p-0"
+                      onClick={() => setCurrentPage(pageNum)}
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Suivant
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <FormModal
         open={modalOpen}
@@ -274,30 +519,30 @@ export default function Drivers() {
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 label="Prénom"
-                name="first_name"
-                value={formData.first_name}
+                name="firstName"
+                value={formData.firstName}
                 onChange={handleChange}
                 required
               />
               <FormField
                 label="Nom"
-                name="last_name"
-                value={formData.last_name}
+                name="lastName"
+                value={formData.lastName}
                 onChange={handleChange}
                 required
               />
               <FormField
                 label="N° CNI"
-                name="id_number"
-                value={formData.id_number}
+                name="idNumber"
+                value={formData.idNumber}
                 onChange={handleChange}
                 required
               />
               <FormField
                 label="Date de naissance"
-                name="date_of_birth"
+                name="dateOfBirth"
                 type="date"
-                value={formData.date_of_birth}
+                value={formData.dateOfBirth}
                 onChange={handleChange}
               />
             </div>
@@ -321,16 +566,11 @@ export default function Drivers() {
                 onChange={handleChange}
               />
               <FormField
-                label="Compte Mobile Money"
-                name="mobile_money_account"
-                value={formData.mobile_money_account}
-                onChange={handleChange}
-              />
-              <FormField
                 label="Adresse"
                 name="address"
                 value={formData.address}
                 onChange={handleChange}
+                className="col-span-2"
               />
             </div>
           </div>
@@ -340,15 +580,15 @@ export default function Drivers() {
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 label="N° Permis"
-                name="license_number"
-                value={formData.license_number}
+                name="licenseNumber"
+                value={formData.licenseNumber}
                 onChange={handleChange}
               />
               <FormField
                 label="Date d'expiration"
-                name="license_expiry"
+                name="licenseExpiry"
                 type="date"
-                value={formData.license_expiry}
+                value={formData.licenseExpiry}
                 onChange={handleChange}
               />
             </div>
@@ -359,19 +599,11 @@ export default function Drivers() {
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 label="GIE"
-                name="gie_id"
+                name="gieId"
                 type="select"
-                value={formData.gie_id}
+                value={formData.gieId}
                 onChange={handleChange}
                 options={gieOptions}
-              />
-              <FormField
-                label="Véhicule actuel"
-                name="current_vehicle_id"
-                type="select"
-                value={formData.current_vehicle_id}
-                onChange={handleChange}
-                options={vehicleOptions}
               />
               <FormField
                 label="Statut"
@@ -383,6 +615,57 @@ export default function Drivers() {
               />
             </div>
           </div>
+
+          {editingDriver && (
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900 mb-3">Documents</h4>
+              <p className="text-xs text-slate-500 mb-4">
+                Formats acceptés: JPG, PNG, GIF, WEBP (max 5MB)
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <FileUpload
+                  label="Photo du chauffeur"
+                  value={formData.photoUrl}
+                  onChange={(file) => file && handleDocumentUpload('photo', file)}
+                  onDelete={() => handleDocumentDelete('photo')}
+                  isUploading={uploadMutation.isPending}
+                />
+                <FileUpload
+                  label="CNI (Recto)"
+                  value={formData.idCardFrontUrl}
+                  onChange={(file) => file && handleDocumentUpload('idCardFront', file)}
+                  onDelete={() => handleDocumentDelete('idCardFront')}
+                  isUploading={uploadMutation.isPending}
+                />
+                <FileUpload
+                  label="CNI (Verso)"
+                  value={formData.idCardBackUrl}
+                  onChange={(file) => file && handleDocumentUpload('idCardBack', file)}
+                  onDelete={() => handleDocumentDelete('idCardBack')}
+                  isUploading={uploadMutation.isPending}
+                />
+                <FileUpload
+                  label="Permis (Recto)"
+                  value={formData.licenseFrontUrl}
+                  onChange={(file) => file && handleDocumentUpload('licenseFront', file)}
+                  onDelete={() => handleDocumentDelete('licenseFront')}
+                  isUploading={uploadMutation.isPending}
+                />
+                <FileUpload
+                  label="Permis (Verso)"
+                  value={formData.licenseBackUrl}
+                  onChange={(file) => file && handleDocumentUpload('licenseBack', file)}
+                  onDelete={() => handleDocumentDelete('licenseBack')}
+                  isUploading={uploadMutation.isPending}
+                />
+              </div>
+              {!editingDriver && (
+                <p className="text-xs text-amber-600 mt-2">
+                  Vous pourrez ajouter des documents après la création du chauffeur.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </FormModal>
 
@@ -399,7 +682,11 @@ export default function Drivers() {
             <AlertDialogAction
               onClick={() => handleDelete(deleteConfirm?.id)}
               className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
             >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -2,7 +2,9 @@
 "use client";
 
 import React, { useState } from 'react';
-import { ShieldCheck, Phone, Mail, Edit2, MoreVertical } from 'lucide-react';
+import Link from 'next/link';
+import { ShieldCheck, Phone, Mail, Edit2, Trash2, MoreVertical, Loader2, MapPin, Eye } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/common/PageHeader';
 import DataTable from '@/components/common/DataTable';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -15,27 +17,93 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import insurersService from '@/api/services/insurers.service';
+import { useAlert } from '@/providers/AlertProvider';
 
 const statusOptions = [
-  { value: 'active', label: 'Actif' },
-  { value: 'inactive', label: 'Inactif' }
+  { value: 'ACTIVE', label: 'Actif' },
+  { value: 'INACTIVE', label: 'Inactif' }
 ];
 
-// Données mock
-const mockInsurers: any[] = [];
-
 export default function Insurers() {
+  const queryClient = useQueryClient();
+  const alert = useAlert();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingInsurer, setEditingInsurer] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [formData, setFormData] = useState({});
-  const [isLoading, setIsLoading] = useState(false);
 
-  const insurers = mockInsurers;
+  // Récupérer les assureurs
+  const { data: insurersData, isLoading } = useQuery({
+    queryKey: ['insurers'],
+    queryFn: () => insurersService.list(),
+  });
+
+  // Mutation pour créer un assureur
+  const createMutation = useMutation({
+    mutationFn: (data) => insurersService.create(data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['insurers'] });
+      toast.success(response.message || 'Assureur créé avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de création');
+    },
+  });
+
+  // Mutation pour modifier un assureur
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => insurersService.update(id, data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['insurers'] });
+      toast.success(response.message || 'Assureur mis à jour avec succès');
+      closeModal();
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de mise à jour');
+    },
+  });
+
+  // Mutation pour supprimer un assureur
+  const deleteMutation = useMutation({
+    mutationFn: (id) => insurersService.delete(id),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['insurers'] });
+      toast.success(response.message || 'Assureur supprimé avec succès');
+      setDeleteConfirm(null);
+    },
+    onError: (error: any) => {
+      alert.showError(error, 'Erreur de suppression');
+    },
+  });
+
+  const insurers = insurersData?.data || [];
 
   const openModal = (insurer = null) => {
     setEditingInsurer(insurer);
-    setFormData(insurer || { status: 'active' });
+    if (insurer) {
+      setFormData({
+        name: insurer.name,
+        address: insurer.address,
+        contactPhone: insurer.contact_phone,
+        contactEmail: insurer.contact_email,
+        status: insurer.status,
+      });
+    } else {
+      setFormData({ status: 'ACTIVE' });
+    }
     setModalOpen(true);
   };
 
@@ -46,14 +114,30 @@ export default function Insurers() {
   };
 
   const handleSubmit = async () => {
-    console.log('Submit:', formData);
-    toast.success(editingInsurer ? 'Assureur mis à jour' : 'Assureur créé');
-    closeModal();
+    const data = {
+      name: formData.name,
+      address: formData.address || undefined,
+      contactPhone: formData.contactPhone || undefined,
+      contactEmail: formData.contactEmail || undefined,
+      status: formData.status,
+    };
+
+    if (editingInsurer) {
+      updateMutation.mutate({ id: editingInsurer.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    deleteMutation.mutate(id);
   };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   const columns = [
     {
@@ -64,8 +148,7 @@ export default function Insurers() {
             <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="font-semibold text-slate-900">{insurer.name}</p>
-            <p className="text-xs text-slate-500">{insurer.code}</p>
+            <Link href={`/insurers/${insurer.id}`} className="text-blue-600 hover:underline font-semibold">{insurer.name}</Link>
           </div>
         </div>
       )
@@ -90,6 +173,15 @@ export default function Insurers() {
       )
     },
     {
+      header: 'Adresse',
+      render: (insurer) => insurer.address ? (
+        <div className="flex items-center gap-2">
+          <MapPin className="w-4 h-4 text-slate-400" />
+          <span className="text-sm text-slate-600">{insurer.address}</span>
+        </div>
+      ) : <span className="text-slate-400">-</span>
+    },
+    {
       header: 'Statut',
       render: (insurer) => <StatusBadge status={insurer.status} />
     },
@@ -104,9 +196,22 @@ export default function Insurers() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`/insurers/${insurer.id}`}>
+                <Eye className="w-4 h-4 mr-2" />
+                Voir détails
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openModal(insurer)}>
               <Edit2 className="w-4 h-4 mr-2" />
               Modifier
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setDeleteConfirm(insurer)}
+              className="text-red-600"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Supprimer
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -136,6 +241,7 @@ export default function Insurers() {
         onClose={closeModal}
         title={editingInsurer ? 'Modifier l\'assureur' : 'Nouvel assureur'}
         onSubmit={handleSubmit}
+        isSubmitting={isSubmitting}
       >
         <div className="grid grid-cols-2 gap-4">
           <FormField
@@ -146,22 +252,16 @@ export default function Insurers() {
             required
           />
           <FormField
-            label="Code"
-            name="code"
-            value={formData.code}
-            onChange={handleChange}
-          />
-          <FormField
             label="Email"
-            name="contact_email"
+            name="contactEmail"
             type="email"
-            value={formData.contact_email}
+            value={formData.contactEmail}
             onChange={handleChange}
           />
           <FormField
             label="Téléphone"
-            name="contact_phone"
-            value={formData.contact_phone}
+            name="contactPhone"
+            value={formData.contactPhone}
             onChange={handleChange}
           />
           <FormField
@@ -173,7 +273,39 @@ export default function Insurers() {
             options={statusOptions}
           />
         </div>
+        <FormField
+          label="Adresse"
+          name="address"
+          type="textarea"
+          value={formData.address}
+          onChange={handleChange}
+          rows={2}
+        />
       </FormModal>
+
+      <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cet assureur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Les assurances associées devront être réaffectées.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => handleDelete(deleteConfirm?.id)}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

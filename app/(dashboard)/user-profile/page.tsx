@@ -2,20 +2,17 @@
 "use client";
 
 import React from 'react';
-import { User, Mail, Phone, Shield } from 'lucide-react';
+import { User, Mail, Shield } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useAuth } from '@/providers/AuthProvider';
 
 export default function UserProfile() {
-  // Mock user data
-  const user = {
-    full_name: 'Utilisateur',
-    email: 'user@example.com',
-    phone: '+221 77 000 00 00',
-    role: 'admin'
-  };
+  const { user } = useAuth();
+
+  const fullName = user ? `${user.firstName} ${user.lastName}` : 'Utilisateur';
 
   return (
     <div>
@@ -29,13 +26,13 @@ export default function UserProfile() {
           <CardContent className="pt-6">
             <div className="text-center">
               <Avatar className="h-24 w-24 mx-auto mb-4">
-                <AvatarImage src={null} />
+                <AvatarImage src={user?.avatar || null} />
                 <AvatarFallback className="bg-gradient-to-br from-amber-500 to-orange-600 text-white text-2xl font-bold">
-                  {user.full_name?.charAt(0) || 'U'}
+                  {user?.firstName?.charAt(0) || 'U'}
                 </AvatarFallback>
               </Avatar>
-              <h2 className="text-xl font-bold text-slate-900">{user.full_name}</h2>
-              <p className="text-sm text-slate-500">{user.role === 'admin' ? 'Administrateur' : 'Utilisateur'}</p>
+              <h2 className="text-xl font-bold text-slate-900">{fullName}</h2>
+              <p className="text-sm text-slate-500">{user?.role === 'admin' ? 'Administrateur' : 'Utilisateur'}</p>
             </div>
           </CardContent>
         </Card>
@@ -50,28 +47,21 @@ export default function UserProfile() {
                 <User className="w-5 h-5 text-slate-400" />
                 <div>
                   <p className="text-sm text-slate-500">Nom complet</p>
-                  <p className="font-medium">{user.full_name}</p>
+                  <p className="font-medium">{fullName}</p>
                 </div>
               </div>
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
                 <Mail className="w-5 h-5 text-slate-400" />
                 <div>
                   <p className="text-sm text-slate-500">Email</p>
-                  <p className="font-medium">{user.email}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
-                <Phone className="w-5 h-5 text-slate-400" />
-                <div>
-                  <p className="text-sm text-slate-500">Téléphone</p>
-                  <p className="font-medium">{user.phone}</p>
+                  <p className="font-medium">{user?.email || '-'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
                 <Shield className="w-5 h-5 text-slate-400" />
                 <div>
                   <p className="text-sm text-slate-500">Rôle</p>
-                  <p className="font-medium">{user.role === 'admin' ? 'Administrateur' : 'Utilisateur'}</p>
+                  <p className="font-medium">{user?.role === 'admin' ? 'Administrateur' : 'Utilisateur'}</p>
                 </div>
               </div>
             </div>
